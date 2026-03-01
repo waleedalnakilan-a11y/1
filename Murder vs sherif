@@ -1,0 +1,412 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+-- Services
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- Main Window
+local Window = Rayfield:CreateWindow({
+   Name = "KZ HUB V2 / BY-Waleed",
+   LoadingTitle = "KZ HUB V2",
+   LoadingSubtitle = "Hitbox + ESP + Movement",
+   Theme = "Dark",
+})
+
+-- Tabs
+local CombatTab = Window:CreateTab("⚔️ Combat", 6323598516)
+local VisualTab = Window:CreateTab("👁️ Visuals", 6034509993)
+local MovementTab = Window:CreateTab("🏃 Movement", 6034509993)
+
+------------------------------------------------------
+-- 🔥 HITBOX EXTENDER (يبقى شغال دايم)
+------------------------------------------------------
+
+local HitboxEnabled = false
+local HitboxSize = 2
+
+-- دالة تحديث الهيتوبكس
+local function updateHitboxes()
+    if not HitboxEnabled then return end -- لو طافي لا تسوي شي
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                pcall(function()
+                    hrp.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+                    hrp.Transparency = 0.7
+                end)
+            end
+        end
+    end
+end
+
+-- دالة إعادة الهيتوبكس للطبيعي
+local function resetHitboxes()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                pcall(function()
+                    hrp.Size = Vector3.new(2, 2, 1) -- الحجم الطبيعي
+                    hrp.Transparency = 0
+                end)
+            end
+        end
+    end
+end
+
+-- دالة تطبيق الهيتوبكس على شخصية معينة
+local function applyHitboxToCharacter(character)
+    if not HitboxEnabled then return end
+    if not character or not character:IsA("Model") then return end
+    
+    local player = Players:GetPlayerFromCharacter(character)
+    if not player or player == LocalPlayer then return end
+    
+    task.wait(0.5) -- ننتظر شوي عشان يتأكد من تحميل الشخصية
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        pcall(function()
+            hrp.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+            hrp.Transparency = 0.7
+        end)
+    end
+end
+
+-- Toggle تشغيل/إيقاف الهيتوبكس
+CombatTab:CreateToggle({
+   Name = "Enable Hitbox Extender",
+   CurrentValue = false,
+   Callback = function(Value)
+      HitboxEnabled = Value
+      if Value then
+         -- إذا شغلناه، نطبق على كل اللاعبين
+         updateHitboxes()
+         Rayfield:Notify({
+            Title = "Hitbox",
+            Content = "تم تفعيل الهيتوبكس",
+            Duration = 2,
+         })
+      else
+         -- إذا طفيناه، نرجع الحجم الطبيعي
+         resetHitboxes()
+         Rayfield:Notify({
+            Title = "Hitbox",
+            Content = "تم إلغاء تفعيل الهيتوبكس",
+            Duration = 2,
+         })
+      end
+   end,
+})
+
+-- سلايدر التحكم بالحجم
+CombatTab:CreateSlider({
+   Name = "Hitbox Size",
+   Range = {1, 200},
+   Increment = 0.5,
+   Suffix = "x",
+   CurrentValue = HitboxSize,
+   Callback = function(Value)
+      HitboxSize = Value
+      if HitboxEnabled then
+         updateHitboxes() -- نحدث الأحجام إذا كان مفعل
+      end
+   end,
+})
+
+-- مراقبة إضافة لاعبين جدد
+Players.PlayerAdded:Connect(function(player)
+    if player ~= LocalPlayer then
+        -- مراقبة إضافة شخصية للاعب الجديد
+        player.CharacterAdded:Connect(function(character)
+            applyHitboxToCharacter(character)
+        end)
+        
+        -- إذا كان عنده شخصية من البداية
+        if player.Character then
+            applyHitboxToCharacter(player.Character)
+        end
+    end
+end)
+
+-- مراقبة اللاعبين الموجودين من البداية
+for _, player in pairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer then
+        -- مراقبة تغيير الشخصية للاعبين الموجودين
+        player.CharacterAdded:Connect(function(character)
+            applyHitboxToCharacter(character)
+        end)
+        
+        -- إذا كان عنده شخصية من البداية
+        if player.Character then
+            applyHitboxToCharacter(player.Character)
+        end
+    end
+end
+
+-- مراقبة إذا الشخصية انضربت أو تغيرت (مثلاً لما تموت)
+LocalPlayer.CharacterAdded:Connect(function()
+    -- هنا نضمن إن الهيتوبكس يرجع يشتغل على كل اللاعبين بعد ما نرجع نبعث
+    if HitboxEnabled then
+        task.wait(1) -- ننتظر شوي عشان اللودينق
+        updateHitboxes()
+    end
+end)
+
+------------------------------------------------------
+-- 👁️ PLAYER ESP
+------------------------------------------------------
+
+local ESPHolders = {}
+local ESPEnabled = false
+
+local function safeCreateESP(player)
+    if player == LocalPlayer or ESPHolders[player] then return end
+    
+    local holder = Instance.new("Folder")
+    holder.Name = player.Name.."_ESP"
+    holder.Parent = game.CoreGui
+    
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "Highlight"
+    highlight.Parent = holder
+    
+    local teamColor = Color3.new(1, 0, 0)
+    if player.Team and LocalPlayer.Team then
+        teamColor = player.Team == LocalPlayer.Team and Color3.new(0, 1, 0) or Color3.new(1, 0, 0)
+    end
+    
+    highlight.FillColor = teamColor
+    highlight.OutlineColor = Color3.new(1, 1, 1)
+    
+    if player.Character then
+        highlight.Adornee = player.Character
+    end
+    
+    player.CharacterAdded:Connect(function(character)
+        task.wait(1)
+        highlight.Adornee = character
+    end)
+    
+    ESPHolders[player] = holder
+end
+
+VisualTab:CreateToggle({
+   Name = "Player ESP",
+   CurrentValue = false,
+   Callback = function(Value)
+      ESPEnabled = Value
+      
+      if Value then
+         for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                safeCreateESP(player)
+            end
+         end
+
+         Players.PlayerAdded:Connect(function(player)
+            if ESPEnabled then
+                safeCreateESP(player)
+            end
+         end)
+      else
+         for player, holder in pairs(ESPHolders) do
+            pcall(function()
+                holder:Destroy()
+            end)
+         end
+         ESPHolders = {}
+      end
+   end,
+})
+
+Players.PlayerRemoving:Connect(function(player)
+    if ESPHolders[player] then
+        pcall(function()
+            ESPHolders[player]:Destroy()
+        end)
+        ESPHolders[player] = nil
+    end
+end)
+
+------------------------------------------------------
+-- 🏃 MOVEMENT FEATURES
+------------------------------------------------------
+
+-- Speed Changer (سلايدر سرعة اللاعب)
+local SpeedEnabled = false
+local SpeedValue = 16
+
+MovementTab:CreateToggle({
+   Name = "Enable Speed Changer",
+   CurrentValue = false,
+   Callback = function(Value)
+      SpeedEnabled = Value
+      if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+         LocalPlayer.Character.Humanoid.WalkSpeed = Value and SpeedValue or 16
+      end
+   end,
+})
+
+MovementTab:CreateSlider({
+   Name = "Walk Speed",
+   Range = {16, 100},
+   Increment = 1,
+   Suffix = "Speed",
+   CurrentValue = SpeedValue,
+   Callback = function(Value)
+      SpeedValue = Value
+      if SpeedEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+         LocalPlayer.Character.Humanoid.WalkSpeed = Value
+      end
+   end,
+})
+
+-- Infinite Jump
+local InfiniteJumpEnabled = false
+
+MovementTab:CreateToggle({
+   Name = "Infinite Jump",
+   CurrentValue = false,
+   Callback = function(Value)
+      InfiniteJumpEnabled = Value
+   end,
+})
+
+UserInputService.JumpRequest:Connect(function()
+   if InfiniteJumpEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+      LocalPlayer.Character.Humanoid:ChangeState("Jumping")
+   end
+end)
+
+-- Fly Mode (باستخدام CFrame)
+local FlyEnabled = false
+local FlySpeed = 50
+local FlyConnection = nil
+local BodyGyro, BodyVelocity
+
+local function toggleFly()
+   if FlyEnabled then
+      -- تشغيل الطيران
+      local character = LocalPlayer.Character
+      if not character then return end
+      
+      local humanoid = character:FindFirstChild("Humanoid")
+      local rootPart = character:FindFirstChild("HumanoidRootPart")
+      
+      if not humanoid or not rootPart then return end
+      
+      humanoid.PlatformStand = true
+      
+      BodyGyro = Instance.new("BodyGyro")
+      BodyGyro.P = 9e4
+      BodyGyro.MaxTorque = Vector3.new(9e4, 9e4, 9e4)
+      BodyGyro.CFrame = rootPart.CFrame
+      BodyGyro.Parent = rootPart
+      
+      BodyVelocity = Instance.new("BodyVelocity")
+      BodyVelocity.Velocity = Vector3.new(0, 0, 0)
+      BodyVelocity.MaxForce = Vector3.new(9e4, 9e4, 9e4)
+      BodyVelocity.Parent = rootPart
+      
+      FlyConnection = RunService.RenderStepped:Connect(function()
+         if not FlyEnabled or not character or not rootPart then
+            toggleFly()
+            return
+         end
+         
+         local moveDirection = Vector3.new(0, 0, 0)
+         
+         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            moveDirection = moveDirection + (workspace.CurrentCamera.CFrame.LookVector * FlySpeed)
+         end
+         if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            moveDirection = moveDirection - (workspace.CurrentCamera.CFrame.LookVector * FlySpeed)
+         end
+         if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            moveDirection = moveDirection - (workspace.CurrentCamera.CFrame.RightVector * FlySpeed)
+         end
+         if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            moveDirection = moveDirection + (workspace.CurrentCamera.CFrame.RightVector * FlySpeed)
+         end
+         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            moveDirection = moveDirection + Vector3.new(0, FlySpeed, 0)
+         end
+         if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+            moveDirection = moveDirection - Vector3.new(0, FlySpeed, 0)
+         end
+         
+         BodyVelocity.Velocity = moveDirection
+         BodyGyro.CFrame = workspace.CurrentCamera.CFrame
+      end)
+      
+   else
+      -- إيقاف الطيران
+      if FlyConnection then
+         FlyConnection:Disconnect()
+         FlyConnection = nil
+      end
+      
+      if BodyGyro then
+         BodyGyro:Destroy()
+         BodyGyro = nil
+      end
+      
+      if BodyVelocity then
+         BodyVelocity:Destroy()
+         BodyVelocity = nil
+      end
+      
+      if LocalPlayer.Character then
+         local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+         if humanoid then
+            humanoid.PlatformStand = false
+         end
+      end
+   end
+end
+
+MovementTab:CreateToggle({
+   Name = "Fly Mode (CFrame)",
+   CurrentValue = false,
+   Callback = function(Value)
+      FlyEnabled = Value
+      toggleFly()
+   end,
+})
+
+MovementTab:CreateSlider({
+   Name = "Fly Speed",
+   Range = {10, 200},
+   Increment = 5,
+   Suffix = "Speed",
+   CurrentValue = FlySpeed,
+   Callback = function(Value)
+      FlySpeed = Value
+   end,
+})
+
+-- عند تغيير الشخصية (للموت)
+LocalPlayer.CharacterAdded:Connect(function(character)
+   task.wait(1)
+   
+   -- إعادة تطبيق السرعة إذا كانت مفعلة
+   if SpeedEnabled and character:FindFirstChild("Humanoid") then
+      character.Humanoid.WalkSpeed = SpeedValue
+   end
+   
+   -- ملاحظة: الطيران بينطفى تلقائياً عند الموت، وهذا طبيعي
+end)
+
+------------------------------------------------------
+-- LOADED MESSAGE
+------------------------------------------------------
+
+Rayfield:Notify({
+   Title = "KZ HUB V2 Loaded",
+   Content = "Hitbox + ESP + Movement Features",
+   Duration = 4,
+})
